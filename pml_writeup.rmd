@@ -1,0 +1,98 @@
+---
+title: "Practical Machine Learning Course Project"
+output: html_document
+---
+##Executive Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The idea is to generate a machine learning model to predict the manner in which exercises for the provided dataset. 
+
+##Data Preparation
+First thing we need to do is to download data to a local folder. Then read the data into corresponding dataframes. Basic data cleaning is performed by setting NAs correctly to account for string values of NA and #DIV/0! which is one of the errors for numeric data. 
+
+```{r}
+library(randomForest)
+library(caret)
+url_train <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+url_test <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+#download.file(url = url_train, destfile = 'data_train.csv')
+#download.file(url = url_test, destfile = 'data_test.csv')
+
+pml_train_data <- read.csv(file = 'data_train.csv',
+                      na.strings = c('NA','#DIV/0!',''))
+pml_eval_data <- read.csv(file = 'data_test.csv',
+                     na.strings = c('NA','#DIV/0!',''))
+```
+
+Going through the summary of the data and peforming basic exploratory analysis, we see that the first seven columns are independent and do not affect our analysis. So these need not be considered. The remaining columns are all numeric and are hence converted into numeric type using the following steps:
+```{r}
+for(i in c(8:ncol(pml_train_data)-1)) {
+  pml_train_data[,i] = as.numeric(as.character(pml_train_data[,i]))
+  pml_eval_data[,i] = as.numeric(as.character(pml_eval_data[,i]))
+}
+
+```
+
+As mentioned earlier, the first seven columns are not required. The list of required columns can be constructed through the following steps:
+```{r}
+required_columns <- colnames(pml_train_data)
+required_columns <- colnames(pml_train_data[colSums(is.na(pml_train_data)) == 0])
+required_columns <- required_columns[-c(1:7)]
+```
+
+##Data Analysis
+We then partition the data into training and cross validation set. In my case, I have partitioned the data such that 80% of the data is used for building the model. The remaining test data is used for cross validation.
+
+```{r}
+set.seed(1300)
+index_train <- createDataPartition(y=pml_train_data$classe, p=0.80, list=FALSE)
+data_train <- pml_train_data[index_train,required_columns]
+data_xval <- pml_train_data[-index_train,required_columns]
+dim(data_train); dim(data_xval)
+```
+In my case, I have chosen a random forest method for building a prediction model. This decision was taken after a preliminary analysis of the training data which revealed that all 5 types of results are likely. This means that accuracy is very important.
+Using functions in the caret package, a confusion matrix for the model and the expected values is generated through the following steps.
+
+```{r,results='hide'}
+controlFunc<-trainControl(method = "cv", number = 4,allowParallel = TRUE, verboseIter = TRUE)
+model<-train(classe ~ .,data = data_train, method = 'rf', trControl = controlFunc)
+prediction_model<-predict(model,data_xval)
+confMatrix <- confusionMatrix(prediction_model,data_xval$classe)
+```
+
+```{r}
+cMatrix<-as.matrix(confMatrix)
+image(cMatrix[,ncol(cMatrix):1], axes=FALSE)
+
+```
+We can check the summary of the confusion matrix to see how well the model has performed: 
+```{r}
+confMatrix
+```
+
+The accuracy of this model is `r confMatrix$overall['Accuracy']`. Since we need to make predictions for a dataset with 20 entries, we can be sure that none of our predictions are miscategorized.
+
+##Results
+```{r}
+final_col <- length(colnames(pml_eval_data[]))
+colnames(pml_eval_data)[final_col] <- 'classe'
+result <- predict(model,pml_eval_data[,required_columns])
+result
+```
+The results are then prepared for the assignment submission part. 
+
+```{r,results='hide'}
+result<-as.character(result)
+# create function to write predictions to files
+pml_write_files <- function(x) {
+    n <- length(x)
+    for(i in 1:n) {
+        filename <- paste0("problem_id_", i, ".txt")
+        write.table(x[i], file=filename, quote=F, row.names=F, col.names=F)
+    }
+}
+
+# create prediction files to submit
+pml_write_files(result)
+
+
+
